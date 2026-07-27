@@ -1,0 +1,23 @@
+[project]
+name = "whittle"
+version = "0.1.0"
+description = "Canonical models, whittled down. Baseline -> optimized -> benchmark, one per major model family."
+requires-python = ">=3.11"
+dependencies = [
+    "torch>=2.4",
+    "torchvision>=0.19",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+]
+
+[tool.uv]
+package = false      # not a package — a folder of projects we run and benchmark
+
+[tool.ruff]
+line-length = 88
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]

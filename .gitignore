@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+
+# uv
+# (uv.lock IS committed — reproducible envs)
+
+# Data + model artifacts (machine-local, regenerable)
+data/
+*.pt
+*.pth
+*.onnx
+*.gguf
+
+# OS
+.DS_Store
