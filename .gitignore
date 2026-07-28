@@ -9,7 +9,7 @@ __pycache__/
 # (uv.lock IS committed — reproducible envs)
 
 # Data + model artifacts (machine-local, regenerable)
-data/
+01_mnist_classifier/data/
 *.pt
 *.pth
 *.onnx
