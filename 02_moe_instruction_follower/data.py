@@ -35,7 +35,7 @@ class Example:
     ys: list[int]
     op_id: int
     sample: list[str]
-    token_id: list[int]
+    token_ids: list[int]
     answer_mask: list[bool]
 
 
@@ -48,7 +48,7 @@ def make_example(rng: np.random.Generator, op: Op, tok: Tokenizer) -> Example:
     sample = ["<bos>", op.name] + xs_string + ["="] + ys_string + ["<eos>"]
     padding_length = SEQ_LEN - len(sample)
     sample = sample + ["<pad>"] * padding_length
-    token_id = [tok.stoi[s] for s in sample]
+    token_ids = [tok.stoi[s] for s in sample]
     answer_mask = (
         [False, False]
         + [False] * len(xs)
@@ -57,15 +57,14 @@ def make_example(rng: np.random.Generator, op: Op, tok: Tokenizer) -> Example:
         + [True]
         + [False] * padding_length
     )
-    example = Example(
+    return Example(
         xs,
         ys,
         op_id,
         sample,
-        token_id,
+        token_ids,
         answer_mask,
     )
-    return example
 
 
 def make_batch(rng: np.random.Generator, tok: Tokenizer, batch_size: int) -> dict:
@@ -73,7 +72,7 @@ def make_batch(rng: np.random.Generator, tok: Tokenizer, batch_size: int) -> dic
     for _ in range(batch_size):
         op = OPS[rng.integers(len(OPS))]
         examples.append(make_example(rng, op, tok))
-    tokens = np.array([e.token_id for e in examples], dtype=np.int32)
+    tokens = np.array([e.token_ids for e in examples], dtype=np.int32)
     answer_mask = np.array([e.answer_mask for e in examples], dtype=bool)
     op_ids = np.array([e.op_id for e in examples], dtype=np.int32)
 
@@ -87,21 +86,21 @@ def make_batch(rng: np.random.Generator, tok: Tokenizer, batch_size: int) -> dic
     return batch
 
 
-def decode_answer(token_row: list[str], tok: Tokenizer) -> list[int]:
+def decode_answer(token_row: list[int], tok: Tokenizer) -> list[int]:
     decoded_row = []
     in_answer = False
-    for i in token_row:
-        if in_answer and tok.itos[i].isdigit():
-            decoded_row = decoded_row + [int(tok.itos[i])]
-        elif i == tok.eq_id:
+    for tid in token_row:
+        if in_answer and tok.itos[tid].isdigit():
+            decoded_row.append(int(tok.itos[tid]))
+        elif tid == tok.eq_id:
             in_answer = True
-        if in_answer and i == tok.eos_id:
+        if in_answer and tid == tok.eos_id:
             in_answer = False
             break
     return decoded_row
 
 
-def grade(pred_answers: list[int], example: list) -> bool:
+def grade(pred_answers: list[int], example: Example) -> bool:
     return pred_answers == example.ys
 
 
