@@ -40,8 +40,9 @@ def test_sort(xs, want):
     ],
 )
 def test_runmax(xs, want):
+    original = xs[:]
     assert runmax(xs) == want
-    assert xs == xs
+    assert xs == original
 
 
 @pytest.mark.parametrize(
