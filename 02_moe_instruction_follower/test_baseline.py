@@ -40,6 +40,7 @@ def test_attention_shape(tok, ids):
     out = CausalSelfAttention(D_MODEL, rngs=nnx.Rngs(0))(x)
     assert out.shape == (8, 20, D_MODEL)
 
+
 def test_block_shape(tok, ids):
     x = Embeddings(tok.vocab_size, SEQ_LEN, D_MODEL, rngs=nnx.Rngs(0))(ids)
     out = Block(D_MODEL, rngs=nnx.Rngs(0))(x)
@@ -47,7 +48,6 @@ def test_block_shape(tok, ids):
 
 
 def test_attention_causal(tok, ids):
-    # rebuild the attention-weight grid and prove the upper triangle (future) is 0
     x = Embeddings(tok.vocab_size, SEQ_LEN, D_MODEL, rngs=nnx.Rngs(0))(ids)
     attn = CausalSelfAttention(D_MODEL, rngs=nnx.Rngs(0))
     K, Q = attn.k(x), attn.q(x)
