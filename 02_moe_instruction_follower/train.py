@@ -38,9 +38,11 @@ def train(
     n_layers: int = 2,
     lr: float = 1e-3,
     seed: int = 0,
+    model: nnx.Module | None = None,
 ) -> tuple[GPT, Tokenizer]:
     tok = Tokenizer()
-    model = GPT(tok.vocab_size, SEQ_LEN, d_model, n_layers, rngs=nnx.Rngs(seed))
+    if model is None:
+        model = GPT(tok.vocab_size, SEQ_LEN, d_model, n_layers, rngs=nnx.Rngs(seed))
     optimizer = nnx.Optimizer(model, optax.adamw(lr), wrt=nnx.Param)
     rng = np.random.default_rng()
     for step in range(steps):
