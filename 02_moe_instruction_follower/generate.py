@@ -1,20 +1,22 @@
 import jax
 import jax.numpy as jnp
 from baseline import GPT
-from data import Tokenizer, decode_answer
+from data import SEQ_LEN, Tokenizer, decode_answer
 from train import train
 
 
 def generate(model: GPT, tok: Tokenizer, prompt_ids: jax.Array, max_new=9):
-    seq = list(prompt_ids)
+    pos = len(prompt_ids)
+    seq = list(prompt_ids) + [tok.pad_id] * (SEQ_LEN - pos)
     for _ in range(max_new):
         ids = jnp.array([seq])
         logits = model(ids)
-        next_id = int(jnp.argmax(logits[0, -1]))
-        seq.append(next_id)
-        if next_id == tok.eos_id:
+        next_id = int(jnp.argmax(logits[0, pos - 1]))
+        seq[pos] = next_id
+        pos += 1
+        if next_id == tok.eos_id or pos >= SEQ_LEN:
             break
-    return seq
+    return seq[:pos]
 
 
 if __name__ == "__main__":
