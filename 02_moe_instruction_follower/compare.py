@@ -2,10 +2,14 @@ import os
 import time
 
 import jax.numpy as jnp
+import questionary
 from checkpoint import load_model, save_model
 from data import SEQ_LEN, Tokenizer, decode_answer
 from generate import generate
 from ops import OP_BY_NAME, OP_NAMES
+from rich.console import Console
+from rich.live import Live
+from rich.table import Table
 from train import train
 
 
@@ -35,29 +39,47 @@ if __name__ == "__main__":
             model = load_model(path)
         else:
             model, _ = train(
-                steps=s, d_mode=config["d_model"], n_layers=config["n_layers"]
+                steps=s, d_model=config["d_model"], n_layers=config["n_layers"]
             )
             save_model(model, config, path)
         models[f"{s} steps"] = model
 
+    console = Console()
+    warm_prompt = build_prompt(tok, "SORT", [1, 2, 3])
+    for model in models.values():
+        generate(model, tok, warm_prompt)
     while True:
-        print("Operations (op):")
-        for op in OP_NAMES:
-            print(op)
-        print("or type Quit to exit")
-        op = input("op:").strip().upper()
+        op = questionary.select("Operations: ", choices=[*OP_NAMES, "QUIT"]).ask()
         if op == "QUIT":
             break
-        nums = [int(x) for x in input("numbers: ").split()]
+        nums = [
+            int(x)
+            for x in questionary.text("Numbers (space separated upto 8): ")
+            .ask()
+            .split()
+        ]
 
         prompt = build_prompt(tok, op, nums)
         truth = OP_BY_NAME[op].solve(nums)
-        print(truth)
+        console.print(f"[bold]{op} {nums} [/bold] -> truth: [cyan]{truth}[/cyan]")
 
-        for label, model in models.items():
-            t0 = time.perf_counter()
-            out = generate(model, tok, prompt)
-            dt = time.perf_counter() - t0
-            pred = decode_answer(jnp.array(out), tok)
-            flag = "✓" if pred == truth else "✗"
-            print(f"  {label:11} {pred}  {flag}  ({dt * 1000:.1f} ms)")
+        table = Table()
+        table.add_column("Model")
+        table.add_column("Output")
+        table.add_column("✓")
+        table.add_column("Time (ms)", justify="right")
+
+        with Live(table, console=console, refresh_per_second=10):
+            for label, model in models.items():
+                t0 = time.perf_counter()
+                out = generate(model, tok, prompt)
+                dt = (time.perf_counter() - t0) * 1000
+                pred = decode_answer(jnp.array(out), tok)
+                ok = pred == truth
+                table.add_row(
+                    label,
+                    str(pred),
+                    "✓" if ok else "✗",
+                    f"{dt:.1f}",
+                    style="green" if ok else "red",
+                )
