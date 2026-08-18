@@ -10,10 +10,12 @@ __pycache__/
 
 # Data + model artifacts (machine-local, regenerable)
 01_mnist_classifier/data/
+02_moe_instruction_follower/checkpoints/
 *.pt
 *.pth
 *.onnx
 *.gguf
+*.pkl
 
 # OS
 .DS_Store
