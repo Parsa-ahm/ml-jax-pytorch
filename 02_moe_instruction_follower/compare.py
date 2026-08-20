@@ -5,19 +5,12 @@ import jax.numpy as jnp
 import questionary
 from checkpoint import load_model, save_model
 from data import SEQ_LEN, Tokenizer, decode_answer
-from generate import generate
+from generate import build_prompt, generate
 from ops import OP_BY_NAME, OP_NAMES
 from rich.console import Console
 from rich.live import Live
 from rich.table import Table
 from train import train
-
-
-def build_prompt(tok: Tokenizer, op_name: str, xs: list):
-    return (
-        [tok.bos_id, tok.stoi[op_name]] + [tok.stoi[str(x)] for x in xs] + [tok.eq_id]
-    )
-
 
 STEP_COUNTS = [1500, 2500, 3500, 4500]
 tok = Tokenizer()
