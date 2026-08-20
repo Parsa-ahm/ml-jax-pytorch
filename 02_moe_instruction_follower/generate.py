@@ -5,6 +5,12 @@ from data import SEQ_LEN, Tokenizer, decode_answer
 from train import train
 
 
+def build_prompt(tok: Tokenizer, op_name: str, xs: list):
+    return (
+        [tok.bos_id, tok.stoi[op_name]] + [tok.stoi[str(x)] for x in xs] + [tok.eq_id]
+    )
+
+
 def generate(model: GPT, tok: Tokenizer, prompt_ids: jax.Array, max_new=9):
     pos = len(prompt_ids)
     seq = list(prompt_ids) + [tok.pad_id] * (SEQ_LEN - pos)

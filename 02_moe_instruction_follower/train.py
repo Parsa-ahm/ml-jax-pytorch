@@ -44,7 +44,7 @@ def train(
     if model is None:
         model = GPT(tok.vocab_size, SEQ_LEN, d_model, n_layers, rngs=nnx.Rngs(seed))
     optimizer = nnx.Optimizer(model, optax.adamw(lr), wrt=nnx.Param)
-    rng = np.random.default_rng()
+    rng = np.random.default_rng(0)
     for step in range(steps):
         batch = make_batch(rng, tok, batch_size)
         ids = jnp.array(batch["tokens"])
