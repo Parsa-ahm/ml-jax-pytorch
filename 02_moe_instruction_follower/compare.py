@@ -4,7 +4,8 @@ import time
 import jax.numpy as jnp
 import questionary
 from checkpoint import load_model, save_model
-from data import SEQ_LEN, Tokenizer, decode_answer
+from config import Config
+from data import Tokenizer, decode_answer
 from generate import build_prompt, generate
 from ops import OP_BY_NAME, OP_NAMES
 from rich.console import Console
@@ -20,9 +21,10 @@ CKPT_DIR = "checkpoints"
 os.makedirs(CKPT_DIR, exist_ok=True)
 config = {
     "vocab_size": tok.vocab_size,
-    "seq_len": SEQ_LEN,
+    "seq_len": tok.seq_len,
     "d_model": 64,
     "n_layers": 2,
+    "n_head": 1,
 }
 
 if __name__ == "__main__":
@@ -31,9 +33,7 @@ if __name__ == "__main__":
         if os.path.exists(path):
             model = load_model(path)
         else:
-            model, _ = train(
-                steps=s, d_model=config["d_model"], n_layers=config["n_layers"]
-            )
+            model, _ = train(Config(steps=s))
             save_model(model, config, path)
         models[f"{s} steps"] = model
 

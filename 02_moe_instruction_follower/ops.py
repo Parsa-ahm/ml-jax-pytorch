@@ -1,26 +1,3 @@
-"""
-Ops.py hold the deterministic operations for the 8 functions we will be training on:
-0 -> sort
-1 -> running max
-2 -> running min
-3 -> de duplicate
-4 -> union set
-5 -> rotate
-6 -> reverse
-7 -> parity (the mod 2 of the number of odd numbers in a list)
-
-these functions are written in a purely functional manner where no in place mutations or
-side effects happen.
-
-The Operations are in a Op data class tuple at the bottom which includes their
-name, family, and function
-
-Accessible through the:
-OPS tuple of Op
-OP_Names tuple of names
-OP_BY_NAME dictionary {name : Op}
-"""
-
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Literal
@@ -84,7 +61,75 @@ def parity(xs: list[int]) -> list[int]:
     return [count % 2]
 
 
-Family = Literal["compare", "set", "move", "reduce"]
+def sort_dec(xs: list[int]) -> list[int]:
+    ans = xs[:]
+    ans.sort(reverse=True)
+    return ans
+
+
+def max_num(xs: list[int]) -> list[int]:
+    return [max(xs)]
+
+
+def min_num(xs: list[int]) -> list[int]:
+    return [min(xs)]
+
+
+def first_num(xs: list[int]) -> list[int]:
+    return [xs[0]]
+
+
+def last_num(xs: list[int]) -> list[int]:
+    return [xs[-1]]
+
+
+def mode(xs: list[int]) -> list[int]:
+    counts = {}
+    for i in xs:
+        counts[i] = counts.get(i, 0) + 1
+    best = max(counts.values())
+    return [min(x for x in counts if counts[x] == best)]
+
+
+def rotate_left(xs: list[int]) -> list[int]:
+    return xs[1:] + xs[:1]
+
+
+def even_index(xs: list[int]) -> list[int]:
+    return xs[0::2]
+
+
+def odd_index(xs: list[int]) -> list[int]:
+    return xs[1::2]
+
+
+def filter_even(xs: list[int]) -> list[int]:
+    ans = []
+    for i in xs:
+        if i % 2 == 0:
+            ans.append(i)
+    return ans
+
+
+def filter_odd(xs: list[int]) -> list[int]:
+    ans = []
+    for i in xs:
+        if i % 2 == 1:
+            ans.append(i)
+    return ans
+
+
+def remove_max(xs: list[int]) -> list[int]:
+    m = max(xs)
+    return [x for x in xs if x != m]
+
+
+def remove_min(xs: list[int]) -> list[int]:
+    m = min(xs)
+    return [x for x in xs if x != m]
+
+
+Family = Literal["compare", "set", "move", "reduce", "filter"]
 
 
 @dataclass(frozen=True)
@@ -102,8 +147,43 @@ Union = Op("UNION", "set", solve=union)
 Rotate = Op("ROTATE", "move", solve=rotate)
 Reverse = Op("REVERSE", "move", solve=reverse)
 Parity = Op("PARITY", "reduce", solve=parity)
+SortDesc = Op("SORT_DESC", "compare", solve=sort_dec)
+Max = Op("MAX", "compare", solve=max_num)
+Min = Op("MIN", "compare", solve=min_num)
+Mode = Op("MODE", "set", solve=mode)
+RotateLeft = Op("ROTATE_LEFT", "move", solve=rotate_left)
+EvensIdx = Op("EVENS_IDX", "move", solve=even_index)
+OddsIdx = Op("ODDS_IDX", "move", solve=odd_index)
+FilterEven = Op("FILTER_EVEN", "filter", solve=filter_even)
+FilterOdd = Op("FILTER_ODD", "filter", solve=filter_odd)
+RemoveMax = Op("REMOVE_MAX", "filter", solve=remove_max)
+RemoveMin = Op("REMOVE_MIN", "filter", solve=remove_min)
+First = Op("FIRST", "reduce", solve=first_num)
+Last = Op("LAST", "reduce", solve=last_num)
 
-OPS = (Sort, Runmax, Runmin, Dedup, Union, Rotate, Reverse, Parity)
+OPS = (
+    Sort,
+    Runmax,
+    Runmin,
+    Dedup,
+    Union,
+    Rotate,
+    Reverse,
+    Parity,
+    SortDesc,
+    Max,
+    Min,
+    Mode,
+    RotateLeft,
+    EvensIdx,
+    OddsIdx,
+    FilterEven,
+    FilterOdd,
+    RemoveMax,
+    RemoveMin,
+    First,
+    Last,
+)
 
 OP_NAMES = tuple(op.name for op in OPS)
 

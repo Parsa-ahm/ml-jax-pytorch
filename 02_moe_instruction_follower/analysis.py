@@ -10,14 +10,14 @@ def get_routing(model: MoEGPT, ids: jax.Array) -> jax.Array:
     x = model.emb(ids)
     block = model.blocks[0]
     h = x + block.attn(block.norm1(x))
-    weights = block.moe.router(block.norm2(h))
+    weights, _ = block.moe.router(block.norm2(h))
     top_expert = jnp.argmax(weights, axis=-1)
     return top_expert
 
 
 def route_counts(
     model: MoEGPT, tok: Tokenizer, n_experts: int = 4, n_examples: int = 2000
-) -> np.array:
+) -> np.ndarray:
     rng = np.random.default_rng(0)
     batch = make_batch(rng, tok, n_examples)
 

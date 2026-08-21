@@ -20,9 +20,15 @@ def load_model(path: str) -> nnx.Module:
         blob = pickle.load(f)
     c = blob["config"]
     mt = blob["model_type"]
+    n_head = c.get("n_head", 1)
     if mt == "GPT":
         model = GPT(
-            c["vocab_size"], c["seq_len"], c["d_model"], c["n_layers"], rngs=nnx.Rngs(0)
+            c["vocab_size"],
+            c["seq_len"],
+            c["d_model"],
+            c["n_layers"],
+            nnx.Rngs(0),
+            n_heads=n_head,
         )
     elif mt == "MoE":
         model = MoEGPT(
@@ -32,7 +38,8 @@ def load_model(path: str) -> nnx.Module:
             c["n_layers"],
             c["n_experts"],
             c["top_k"],
-            rngs=nnx.Rngs(0),
+            nnx.Rngs(0),
+            n_heads=n_head,
         )
     else:
         raise ValueError(f"Unknown model_type: {mt}")

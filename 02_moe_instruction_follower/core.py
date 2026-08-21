@@ -1,8 +1,40 @@
 from dataclasses import dataclass
 
 import numpy as np
-from config import Config
 from ops import OP_NAMES, OPS, Op
+
+
+@dataclass(frozen=True)
+class Config:
+    # Operation and inputs
+    n_ops: int = 8
+    n_dig: int = 10
+    min_input_len: int = 3
+    max_input_len: int = 8
+
+    # model
+    d_model: int = 64
+    n_layers: int = 2
+    n_head: int = 1
+
+    # MoE
+    n_experts: int | None = None
+    top_k: int = 2
+    balance_coef: float = 0.0
+
+    # training
+    steps: int = 8000
+    batch_size: int = 64
+    lr: float = 1e-3
+    seed: int = 0
+
+    @property
+    def seq_len(self) -> int:
+        return 2 * self.max_input_len + 4
+
+    @property
+    def vocab_size(self) -> int:
+        return 4 + self.n_dig + self.n_ops
 
 
 class Tokenizer:
@@ -108,15 +140,3 @@ def decode_answer(token_row: list[int], tok: Tokenizer) -> list[int]:
 
 def grade(pred_answers: list[int], example: Example) -> bool:
     return pred_answers == example.ys
-
-
-if __name__ == "__main__":
-    rng = np.random.default_rng()
-    batch_size = 20
-    tok = Tokenizer()
-    sample = make_batch(rng, tok, batch_size)
-    print(sample["tokens"].shape)
-    print(sample["answer_mask"].shape)
-    print(len(sample["examples"]))
-    decoded_row = decode_answer(sample["tokens"][0], tok)
-    print(grade(decoded_row, sample["examples"][0]))
