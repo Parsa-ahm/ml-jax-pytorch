@@ -1,6 +1,6 @@
 import numpy as np
 import pytest
-from data import Tokenizer, decode_answer, grade, make_batch
+from core import Tokenizer, decode_answer, grade, make_batch
 
 
 @pytest.fixture

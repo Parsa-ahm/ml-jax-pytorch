@@ -3,15 +3,12 @@ import time
 
 import jax.numpy as jnp
 import questionary
-from checkpoint import load_model, save_model
-from config import Config
-from data import Tokenizer, decode_answer
-from generate import build_prompt, generate
+from core import Config, Tokenizer, decode_answer
 from ops import OP_BY_NAME, OP_NAMES
 from rich.console import Console
 from rich.live import Live
 from rich.table import Table
-from train import train
+from train import build_prompt, generate, load_model, save_model, train
 
 STEP_COUNTS = [1500, 2500, 3500, 4500]
 tok = Tokenizer()
@@ -42,7 +39,8 @@ if __name__ == "__main__":
     for model in models.values():
         generate(model, tok, warm_prompt)
     while True:
-        op = questionary.select("Operations: ", choices=[*OP_NAMES, "QUIT"]).ask()
+        active_ops = OP_NAMES[: tok.config.n_ops]  # only ops the model was trained on
+        op = questionary.select("Operations: ", choices=[*active_ops, "QUIT"]).ask()
         if op == "QUIT":
             break
         nums = [

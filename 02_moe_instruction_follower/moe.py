@@ -1,8 +1,16 @@
 import jax
 import jax.numpy as jnp
-from balance import load_balance_loss
-from baseline import CausalSelfAttention, Embeddings
+from dense import CausalSelfAttention, Embeddings
 from flax import nnx
+
+
+def load_balance_loss(probs: jnp.ndarray) -> jnp.ndarray:
+    E = probs.shape[-1]
+    tokens = probs.reshape(-1, E)
+    P = tokens.mean(axis=0)  # mean router prob per expert
+    top1 = jnp.argmax(tokens, axis=-1)
+    f = jnp.bincount(top1, length=E) / tokens.shape[0]  # hard fraction per expert
+    return E * jnp.sum(f * P)
 
 
 class Router(nnx.Module):

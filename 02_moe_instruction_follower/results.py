@@ -2,13 +2,11 @@ import time
 
 import jax
 import numpy as np
-from analysis import route_counts
-from config import Config
-from evaluate import evaluate, plot_accuracy, plot_routing
+from analysis import evaluate, plot_accuracy, plot_routing, route_counts
+from core import Config
 from flax import nnx
-from models import build_model
 from ops import OP_NAMES
-from train import train
+from train import build_model, train
 
 SEEDS = [1, 2, 3, 4, 5]
 STEPS = 8000
@@ -28,7 +26,7 @@ def _ckpt_cfg(config: Config, tok) -> dict:
 
 
 def run(seeds=SEEDS, steps=STEPS):
-    from checkpoint import save_model
+    from train import save_model
 
     dense_runs, moe_runs, bal_runs = [], [], []
     train_times = {"dense": [], "moe": [], "balanced": []}

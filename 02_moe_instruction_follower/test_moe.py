@@ -1,8 +1,8 @@
 import jax.numpy as jnp
 import numpy as np
 import pytest
-from baseline import Embeddings
-from data import Tokenizer, make_batch
+from core import Tokenizer, make_batch
+from dense import Embeddings
 from flax import nnx
 from moe import MoEGPT, MoELayer, Router
 

@@ -4,14 +4,12 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 from analysis import get_routing, route_counts
-from baseline import GPT
-from checkpoint import load_model, save_model
-from data import Tokenizer, make_batch
+from core import Tokenizer, make_batch
+from dense import GPT
 from flax import nnx
-from generate import build_prompt
 from moe import MoEGPT
 from ops import OP_NAMES
-from train import compute_loss
+from train import build_prompt, compute_loss, load_model, save_model
 
 D_MODEL, N_EXPERTS, TOP_K = 64, 4, 2
 
