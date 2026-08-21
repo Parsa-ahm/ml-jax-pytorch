@@ -1,18 +1,18 @@
 from dataclasses import dataclass
 
 import numpy as np
+from config import Config
 from ops import OP_NAMES, OPS, Op
-
-MIN_INPUT_LEN = 3
-MAX_INPUT_LEN = 8
-SEQ_LEN = 20
 
 
 class Tokenizer:
-    def __init__(self):
+    def __init__(self, config: Config | None = None):
+        self.config = config or Config()
+        c = self.config
         specials = ["<pad>", "<bos>", "<eos>", "="]
-        numbers = [str(i) for i in range(10)]
-        self.itos = specials + numbers + list(OP_NAMES)
+        numbers = [str(i) for i in range(c.n_dig)]
+        op_names = list(OP_NAMES[: c.n_ops])
+        self.itos = specials + numbers + op_names
         self.stoi = {tok: i for i, tok in enumerate(self.itos)}
         self.pad_id = self.stoi["<pad>"]
         self.bos_id = self.stoi["<bos>"]
@@ -23,10 +23,14 @@ class Tokenizer:
     def vocab_size(self) -> int:
         return len(self.itos)
 
+    @property
+    def seq_len(self) -> int:
+        return self.config.seq_len
 
-def sample_inputs(rng: np.random.Generator) -> list[int]:
-    n = rng.integers(MIN_INPUT_LEN, MAX_INPUT_LEN + 1)
-    return rng.integers(0, 10, size=n).tolist()
+
+def sample_inputs(rng: np.random.Generator, config: Config) -> list[int]:
+    n = rng.integers(config.min_input_len, config.max_input_len + 1)
+    return rng.integers(0, config.n_dig, size=n).tolist()
 
 
 @dataclass
@@ -40,13 +44,14 @@ class Example:
 
 
 def make_example(rng: np.random.Generator, op: Op, tok: Tokenizer) -> Example:
-    xs = sample_inputs(rng)
+    c = tok.config
+    xs = sample_inputs(rng, c)
     ys = op.solve(xs)
     xs_string = [str(i) for i in xs]
     ys_string = [str(i) for i in ys]
     op_id = OP_NAMES.index(op.name)
     sample = ["<bos>", op.name] + xs_string + ["="] + ys_string + ["<eos>"]
-    padding_length = SEQ_LEN - len(sample)
+    padding_length = c.seq_len - len(sample)
     sample = sample + ["<pad>"] * padding_length
     token_ids = [tok.stoi[s] for s in sample]
     answer_mask = (
@@ -68,9 +73,10 @@ def make_example(rng: np.random.Generator, op: Op, tok: Tokenizer) -> Example:
 
 
 def make_batch(rng: np.random.Generator, tok: Tokenizer, batch_size: int) -> dict:
+    c = tok.config
     examples = []
     for _ in range(batch_size):
-        op = OPS[rng.integers(len(OPS))]
+        op = OPS[rng.integers(c.n_ops)]
         examples.append(make_example(rng, op, tok))
     tokens = np.array([e.token_ids for e in examples], dtype=np.int32)
     answer_mask = np.array([e.answer_mask for e in examples], dtype=bool)

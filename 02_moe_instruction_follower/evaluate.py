@@ -9,12 +9,15 @@ from generate import build_prompt, generate
 from ops import OP_NAMES
 
 
-def evaluate(model: nnx.Module, tok: Tokenizer, n_examples: int = 500):
+def evaluate(
+    model: nnx.Module, tok: Tokenizer, n_examples: int = 500
+) -> dict[str, float]:
+    active = OP_NAMES[: tok.config.n_ops]  # only the ops this task actually uses
     rng = np.random.default_rng(8)
     batch = make_batch(rng, tok, n_examples)
 
-    correct = {name: 0 for name in OP_NAMES}
-    total = {name: 0 for name in OP_NAMES}
+    correct = {name: 0 for name in active}
+    total = {name: 0 for name in active}
 
     for ex in batch["examples"]:
         name = OP_NAMES[ex.op_id]
@@ -25,10 +28,12 @@ def evaluate(model: nnx.Module, tok: Tokenizer, n_examples: int = 500):
         if pred == ex.ys:
             correct[name] += 1
 
-    return {name: correct[name] / total[name] for name in OP_NAMES}
+    return {name: correct[name] / total[name] for name in active}
 
 
-def plot_accuracy(dense, moe, path="figures/accuracy.svg"):
+def plot_accuracy(
+    dense: dict[str, float], moe: dict[str, float], path: str = "figures/accuracy.svg"
+) -> None:
     os.makedirs("figures", exist_ok=True)
     ops = list(dense.keys())
     x = np.arange(len(ops))
@@ -48,7 +53,7 @@ def plot_accuracy(dense, moe, path="figures/accuracy.svg"):
     print(f"saved {path}")
 
 
-def plot_routing(counts, path="figures/routing.svg"):
+def plot_routing(counts: np.ndarray, path: str = "figures/routing.svg") -> None:
     os.makedirs("figures", exist_ok=True)
     frac = counts / counts.sum(axis=1, keepdims=True)
 

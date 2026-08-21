@@ -2,7 +2,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 from baseline import Embeddings
-from data import SEQ_LEN, Tokenizer, make_batch
+from data import Tokenizer, make_batch
 from flax import nnx
 from moe import MoEGPT, MoELayer, Router
 
@@ -23,32 +23,40 @@ def ids(tok):
 
 @pytest.fixture
 def x(tok, ids):
-    return Embeddings(tok.vocab_size, SEQ_LEN, D_MODEL, rngs=nnx.Rngs(0))(ids)
+    return Embeddings(tok.vocab_size, tok.seq_len, D_MODEL, rngs=nnx.Rngs(0))(ids)
 
 
-def test_router_shape(x):
-    w = Router(D_MODEL, N_EXPERTS, TOP_K, rngs=nnx.Rngs(0))(x)
-    assert w.shape == (8, SEQ_LEN, N_EXPERTS)
+def test_router_shape(tok, x):
+    w, _ = Router(D_MODEL, N_EXPERTS, TOP_K, rngs=nnx.Rngs(0))(x)
+    assert w.shape == (8, tok.seq_len, N_EXPERTS)
 
 
 def test_router_sums_to_one(x):
-    w = Router(D_MODEL, N_EXPERTS, TOP_K, rngs=nnx.Rngs(0))(x)
+    w, _ = Router(D_MODEL, N_EXPERTS, TOP_K, rngs=nnx.Rngs(0))(x)
     assert bool(jnp.allclose(w.sum(-1), 1.0))
 
 
 def test_router_topk_sparsity(x):
-    w = Router(D_MODEL, N_EXPERTS, TOP_K, rngs=nnx.Rngs(0))(x)
+    w, _ = Router(D_MODEL, N_EXPERTS, TOP_K, rngs=nnx.Rngs(0))(x)
     assert bool(jnp.all((w > 0).sum(-1) == TOP_K))
 
 
-def test_moelayer_shape(x):
-    out = MoELayer(D_MODEL, N_EXPERTS, TOP_K, rngs=nnx.Rngs(0))(x)
-    assert out.shape == (8, SEQ_LEN, D_MODEL)
+def test_router_probs_dense(tok, x):
+    # the second return is the DENSE softmax over all experts (for load balancing)
+    _, probs = Router(D_MODEL, N_EXPERTS, TOP_K, rngs=nnx.Rngs(0))(x)
+    assert probs.shape == (8, tok.seq_len, N_EXPERTS)
+    assert bool(jnp.allclose(probs.sum(-1), 1.0))
+    assert bool(jnp.all(probs > 0))  # dense: every expert has nonzero prob
+
+
+def test_moelayer_shape(tok, x):
+    out, _ = MoELayer(D_MODEL, N_EXPERTS, TOP_K, rngs=nnx.Rngs(0))(x)
+    assert out.shape == (8, tok.seq_len, D_MODEL)
 
 
 def test_moegpt_logits(tok, ids):
     model = MoEGPT(
-        tok.vocab_size, SEQ_LEN, D_MODEL, 2, N_EXPERTS, TOP_K, rngs=nnx.Rngs(0)
+        tok.vocab_size, tok.seq_len, D_MODEL, 2, N_EXPERTS, TOP_K, rngs=nnx.Rngs(0)
     )
     logits = model(ids)
-    assert logits.shape == (8, SEQ_LEN, tok.vocab_size)
+    assert logits.shape == (8, tok.seq_len, tok.vocab_size)

@@ -2,9 +2,10 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import optax
-from baseline import GPT
-from data import SEQ_LEN, Tokenizer, make_batch
+from config import Config
+from data import Tokenizer, make_batch
 from flax import nnx
+from models import build_model
 
 
 def compute_loss(
@@ -20,40 +21,45 @@ def compute_loss(
 
 @nnx.jit
 def training_step(
-    model: GPT, optimizer: nnx.Optimizer, ids: jax.Array, answer_mask: jax.Array
+    model: nnx.Module,
+    optimizer: nnx.Optimizer,
+    ids: jax.Array,
+    answer_mask: jax.Array,
+    balance_coef: float,
 ) -> jax.Array:
+
     def loss_fn(model):
-        logits = model(ids)
-        return compute_loss(logits, ids, answer_mask)
+        if hasattr(model, "forward_with_aux"):
+            logits, aux = model.forward_with_aux(ids)
+        else:
+            logits, aux = model(ids), 0.0
+        return compute_loss(logits, ids, answer_mask) + balance_coef * aux
 
     loss, grads = nnx.value_and_grad(loss_fn)(model)
     optimizer.update(model, grads)
     return loss
 
 
-def train(
-    steps: int = 2000,
-    batch_size: int = 64,
-    d_model: int = 64,
-    n_layers: int = 2,
-    lr: float = 1e-3,
-    seed: int = 0,
-    model: nnx.Module | None = None,
-) -> tuple[GPT, Tokenizer]:
-    tok = Tokenizer()
-    if model is None:
-        model = GPT(tok.vocab_size, SEQ_LEN, d_model, n_layers, rngs=nnx.Rngs(seed))
-    optimizer = nnx.Optimizer(model, optax.adamw(lr), wrt=nnx.Param)
-    rng = np.random.default_rng(0)
-    for step in range(steps):
-        batch = make_batch(rng, tok, batch_size)
+def train(config: Config) -> tuple[nnx.Module, Tokenizer]:
+    tok = Tokenizer(config)
+    model = build_model(config, nnx.Rngs(config.seed))
+    optimizer = nnx.Optimizer(model, optax.adamw(config.lr), wrt=nnx.Param)
+    rng = np.random.default_rng(config.seed)
+    for step in range(config.steps):
+        batch = make_batch(rng, tok, config.batch_size)
         ids = jnp.array(batch["tokens"])
         mask = jnp.array(batch["answer_mask"])
-        loss = training_step(model, optimizer=optimizer, ids=ids, answer_mask=mask)
+        loss = training_step(
+            model,
+            optimizer=optimizer,
+            ids=ids,
+            answer_mask=mask,
+            balance_coef=config.balance_coef,
+        )
         if step % 100 == 0:
             print(step, float(loss))
     return model, tok
 
 
 if __name__ == "__main__":
-    train()
+    train(Config())

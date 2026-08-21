@@ -14,29 +14,38 @@ class Embeddings(nnx.Module):
 
 
 class CausalSelfAttention(nnx.Module):
-    def __init__(self, d_model: int, rngs: nnx.Rngs):
+    def __init__(self, d_model: int, rngs: nnx.Rngs, n_heads: int = 1):
         self.k = nnx.Linear(d_model, d_model, rngs=rngs)
         self.v = nnx.Linear(d_model, d_model, rngs=rngs)
         self.q = nnx.Linear(d_model, d_model, rngs=rngs)
         self.proj = nnx.Linear(d_model, d_model, rngs=rngs)
-        self.d_model = d_model
+        self.n_heads = n_heads
+        self.d_head = d_model // n_heads
 
     def __call__(self, x):
-        K = self.k(x)
-        V = self.v(x)
-        Q = self.q(x)
-        T = x.shape[1]
-        scores = (jnp.matmul(Q, jnp.swapaxes(K, -1, -2))) / jnp.sqrt(self.d_model)
+        B, T, D = x.shape
+        H = self.n_heads
+        dh = self.d_head
+
+        def split(t):
+            return t.reshape(B, T, H, dh).transpose(0, 2, 1, 3)
+
+        V = split(self.v(x))
+        K = split(self.k(x))
+        Q = split(self.q(x))
+        scores = (jnp.matmul(Q, jnp.swapaxes(K, -1, -2))) / jnp.sqrt(dh)
         mask = jnp.tril(jnp.ones((T, T)))
         scores = jnp.where(mask == 0, -jnp.inf, scores)
         weights = jax.nn.softmax(scores, axis=-1)
         out = jnp.matmul(weights, V)
+
+        out = out.transpose(0, 2, 1, 3).reshape(B, T, D)
         return self.proj(out)
 
 
 class Block(nnx.Module):
-    def __init__(self, d_model: int, rngs: nnx.Rngs):
-        self.attn = CausalSelfAttention(d_model=d_model, rngs=rngs)
+    def __init__(self, d_model: int, rngs: nnx.Rngs, n_heads: int = 1):
+        self.attn = CausalSelfAttention(d_model=d_model, rngs=rngs, n_heads=n_heads)
         self.norm1 = nnx.LayerNorm(d_model, rngs=rngs)
         self.norm2 = nnx.LayerNorm(d_model, rngs=rngs)
         self.fc1 = nnx.Linear(d_model, 4 * d_model, rngs=rngs)
@@ -58,12 +67,16 @@ class GPT(nnx.Module):
         d_model: int,
         n_layers: int,
         rngs: nnx.Rngs,
+        n_heads: int = 1,
     ):
         self.emb = Embeddings(
             vocab_size=vocab_size, seq_len=seq_len, d_model=d_model, rngs=rngs
         )
         self.blocks = nnx.List(
-            [Block(d_model=d_model, rngs=rngs) for _ in range(n_layers)]
+            [
+                Block(d_model=d_model, rngs=rngs, n_heads=n_heads)
+                for _ in range(n_layers)
+            ]
         )
         self.norm_f = nnx.LayerNorm(d_model, rngs=rngs)
         self.head = nnx.Linear(d_model, vocab_size, rngs=rngs)

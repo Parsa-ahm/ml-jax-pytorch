@@ -3,7 +3,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 from baseline import GPT, Block, CausalSelfAttention, Embeddings
-from data import SEQ_LEN, Tokenizer, make_batch
+from data import Tokenizer, make_batch
 from flax import nnx
 
 D_MODEL = 64
@@ -20,14 +20,14 @@ def ids(tok):
 
 
 def test_model_shape(tok, ids):
-    model = GPT(tok.vocab_size, SEQ_LEN, D_MODEL, n_layers=2, rngs=nnx.Rngs(0))
+    model = GPT(tok.vocab_size, tok.seq_len, D_MODEL, n_layers=2, rngs=nnx.Rngs(0))
     logits = model(ids)
-    assert logits.shape == (ids.shape[0], SEQ_LEN, tok.vocab_size)
+    assert logits.shape == (ids.shape[0], tok.seq_len, tok.vocab_size)
 
 
 def test_embeddings_shape(tok, ids):
     assert (
-        Embeddings(tok.vocab_size, SEQ_LEN, D_MODEL, rngs=nnx.Rngs(0))(ids)
+        Embeddings(tok.vocab_size, tok.seq_len, D_MODEL, rngs=nnx.Rngs(0))(ids)
     ).shape == (
         8,
         20,
@@ -36,19 +36,19 @@ def test_embeddings_shape(tok, ids):
 
 
 def test_attention_shape(tok, ids):
-    x = Embeddings(tok.vocab_size, SEQ_LEN, D_MODEL, rngs=nnx.Rngs(0))(ids)
+    x = Embeddings(tok.vocab_size, tok.seq_len, D_MODEL, rngs=nnx.Rngs(0))(ids)
     out = CausalSelfAttention(D_MODEL, rngs=nnx.Rngs(0))(x)
     assert out.shape == (8, 20, D_MODEL)
 
 
 def test_block_shape(tok, ids):
-    x = Embeddings(tok.vocab_size, SEQ_LEN, D_MODEL, rngs=nnx.Rngs(0))(ids)
+    x = Embeddings(tok.vocab_size, tok.seq_len, D_MODEL, rngs=nnx.Rngs(0))(ids)
     out = Block(D_MODEL, rngs=nnx.Rngs(0))(x)
     assert out.shape == (8, 20, D_MODEL)
 
 
 def test_attention_causal(tok, ids):
-    x = Embeddings(tok.vocab_size, SEQ_LEN, D_MODEL, rngs=nnx.Rngs(0))(ids)
+    x = Embeddings(tok.vocab_size, tok.seq_len, D_MODEL, rngs=nnx.Rngs(0))(ids)
     attn = CausalSelfAttention(D_MODEL, rngs=nnx.Rngs(0))
     K, Q = attn.k(x), attn.q(x)
     T = x.shape[1]
