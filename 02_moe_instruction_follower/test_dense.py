@@ -2,8 +2,8 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
-from baseline import GPT, Block, CausalSelfAttention, Embeddings
-from data import Tokenizer, make_batch
+from core import Tokenizer, make_batch
+from dense import GPT, Block, CausalSelfAttention, Embeddings
 from flax import nnx
 
 D_MODEL = 64
