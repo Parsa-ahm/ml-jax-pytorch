@@ -1,3 +1,5 @@
+"""The 21 list operations and the Op registry (name, family, solve)."""
+
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Literal
