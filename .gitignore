@@ -19,3 +19,7 @@ __pycache__/
 
 # OS
 .DS_Store
+
+# sweep run artifacts (regenerable)
+datasheet.jsonl
+sweep.log

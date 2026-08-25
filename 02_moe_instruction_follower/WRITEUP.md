@@ -1,359 +1,266 @@
-# Do Experts Earn Their Keep? A Controlled Study of Mixture-of-Experts on Algorithmic Tasks
+# MoE Instruction-Follower: Findings
 
-> **Status:** draft. Numbers are from the current multi-seed runs (5 seeds, 8k steps).
-> Phase C (load-balanced + kernel-optimized MoE) is not yet included.
+A controlled study of a from-scratch Mixture-of-Experts transformer against a
+dense baseline on a synthetic list-operation task. The goal is not to argue that
+one architecture is "better"; it is to hold every variable fixed except the one
+under test, sweep all variations, and report what actually happened and why.
 
-## Abstract
-
-I train a small decoder-only transformer to execute eight short list-manipulation
-operations selected by a prefix token, and use it as a controlled testbed to ask a
-single question: **does a Mixture-of-Experts (MoE) layer earn its cost over a dense
-MLP?** Because every target is generated programmatically, accuracy is exact and
-measured per operation. Across five seeds I find that a naive top-2 MoE with four
-experts is **strictly dominated** by the naive dense model. The MoE has 2.9× the parameters and
-1.7× the training time for no accuracy gain, I believe that this is explained by **severe,
-stochastic load imbalance**: in most seeds one or more experts collapse to near-zero
-utilization. I also find one operation (parity) that neither model learns above
-chance. I argue that the promise of MoE at this scale is conditional on (i) sparse
-computation and (ii) load balancing, and set up that experiment for future work.
+All numbers below come from `datasheet.jsonl` (346 runs). Every figure is
+regenerated from that file by `report_figures.py`; the sparse-vs-naive
+benchmark is the measured output of `app.py bench` on the dev GPU.
 
 ---
 
-## 1. Introduction
+## 1. Method
 
-Mixture-of-Experts layers are a central tool in scaling modern language models: they
-increase parameter count while keeping per-token compute roughly fixed by routing each
-token to a small subset of "expert" sub-networks. Most demonstrations are at scale,
-where confounds abound. I instead ask the question in a **fully controlled, exactly
-gradeable** setting.
+**Design.** A full grid over four factors, with four architectures:
 
-I define a family of eight short algorithmic operations over sequences of single
-digits (sort, running-max, etc.), these eight operations were further split into 4 families (compare, set, move, reduce), this one done to allow for a logical distribution of tasks amongs the expert. I then select one per example with a prefix token, and train
-a dense transformer to produce the answer autoregressively. The data is generated on the
-fly, and every answer is checked by the reference implementation, so accuracy is exact and per-operation. This makes it a clean instrument for comparing a
-**dense** feed-forward block against a **Mixture-of-Experts** block under matched
-training — a comparison studied at scale by Fedus et al. [2], here isolated in a small
-controlled setting.
+| Factor                 | Values                              |
+| ---------------------- | ----------------------------------- |
+| architecture           | dense · moe4 · moe4-balanced · moe3 |
+| d_model (capacity)     | 16, 32, 64, 128                     |
+| n_ops (task diversity) | 4, 8, 16                            |
+| n_dig (vocabulary)     | 10, 20                              |
+| seed                   | 1, 2, 3, 4                          |
 
-**Contributions.**
+Training budget is fixed at 8000 steps for every run.
 
-1. A controlled dense-vs-MoE comparison with exact, per-operation accuracy over multiple
-   seeds.
-2. A cost accounting (parameters, training time) showing the naïve MoE is dominated.
-3. A routing analysis quantifying expert specialization and **stochastic expert
-   collapse** as the mechanism behind the null accuracy result.
+**Controls.** All architectures share the same task, tokenizer, optimizer
+(AdamW, lr 1e-3), batch size, training budget, and data generator. The _only_
+difference is the feed-forward block: a dense MLP versus a router that selects
+`top_k=2` of `n_experts` MLPs. `moe4` = 4 experts, `moe3` = 3 experts,
+`moe4-balanced` = 4 experts with the load-balancing auxiliary loss switched on.
 
----
+**Isolating a variable.** To read one factor's effect I report **marginal
+means**: accuracy averaged over every other factor. This is only honest if the
+grid is balanced, which it is (86-87 runs per architecture).
 
-## 2. Task formulation
+**Metrics.** overall accuracy (fraction of _fully_ correct outputs), held-out
+loss, total vs. active parameters, wall-clock train time, inference tokens/sec,
+and two routing-health numbers (utilization entropy, dead-expert count).
 
-Let the digit alphabet be $\Sigma = \{0,\dots,9\}$. I define a set of eight operations
-
-$$\mathcal{O} = \{\,\texttt{SORT},\texttt{RUNMAX},\texttt{RUNMIN},\texttt{DEDUP},\texttt{UNION},\texttt{ROTATE},\texttt{REVERSE},\texttt{PARITY}\,\},$$
-
-each a pure function $o : \Sigma^{n} \to \Sigma^{m}$ (with $m \le n$; parity has
-$m=1$). I group them into four loose _families_ — **compare**
-(sort, runmax, runmin), **set** (dedup, union), **move** (rotate, reverse), and
-**reduce** (parity) — used only for the routing analysis in §6.
-
-An example is the token sequence
-
-$$
-x = \big[\,\text{BOS},\; o,\; a_1,\dots,a_n,\; {=},\; b_1,\dots,b_m,\; \text{EOS}\,\big],
-\qquad b = o(a),
-$$
-
-where the input $a$ has length $n \sim \mathcal{U}\{3,\dots,8\}$ and digits
-$a_i \sim \mathcal{U}(\Sigma)$. Sequences are right-padded to a fixed length $T=20$.
-The vocabulary $\mathcal V$ has $|\mathcal V| = 22$ tokens: four specials
-($\text{PAD},\text{BOS},\text{EOS},{=}$), the ten digits, and the eight operation
-names. The **answer region** $\mathcal A \subseteq \{1,\dots,T\}$ marks the positions of
-$b_1,\dots,b_m,\text{EOS}$; only these are scored during training and evaluation.
+**Why this task.** Every example is generated and graded programmatically
+(`SORT 4 5 2 1 = 1 2 4 5`), so there is no dataset and no label noise, so
+accuracy is exact, and difficulty and capacity can be dialed independently. That control
+is the whole point; the cost is that the task is small, which matters for the
+interpretation throughout.
 
 ---
 
-## 3. Dense model
+## 2. Effect of capacity (d_model)
 
-I use a pre-norm decoder-only transformer of $L$ layers and width $d$.
+![Accuracy vs d_model](figures/fig_dmodel.svg)
 
-**Embedding.** Token and (learned) positional embeddings are summed:
+| d_model | dense | moe4 | moe4-bal | moe3 |
+| ------: | ----: | ---: | -------: | ---: |
+|      16 |  68.5 | 77.9 |     78.6 | 77.0 |
+|      32 |  86.9 | 89.7 |     89.7 | 88.5 |
+|      64 |  89.6 | 90.9 |     91.7 | 91.9 |
+|     128 |  90.0 | 90.4 |     90.5 | 88.8 |
 
-$$h_i^{(0)} = E_{x_i} + P_i, \qquad E \in \mathbb{R}^{|\mathcal V|\times d},\; P \in \mathbb{R}^{T\times d}.$$
+Accuracy rises steeply from d=16 to d=64 (+21 pts for dense) and then plateaus;
+d=128 is within noise of d=64. **The task saturates near d=64.**
 
-**Causal self-attention.** With $Q = hW_Q$, $K = hW_K$, $V = hW_V$,
-
-$$
-\mathrm{Attn}(h) = \mathrm{softmax}\!\left(\frac{QK^\top}{\sqrt d} + M\right)V,
-\qquad
-M_{ij} = \begin{cases} 0 & j \le i \\ -\infty & j > i \end{cases}
-$$
-
-The mask $M$ enforces causality: position $i$ attends only to $\{1,\dots,i\}$.
-(I use a single attention head.)
-
-**Block.** Each layer applies attention and a feed-forward network, each in a
-pre-norm residual branch:
-
-$$
-h' = h + \mathrm{Attn}(\mathrm{LN}(h)), \qquad
-h'' = h' + \mathrm{FFN}(\mathrm{LN}(h')),
-$$
-
-with a two-layer MLP and ReLU nonlinearity and expansion factor 4:
-
-$$
-\mathrm{FFN}(z) = W_2\,\mathrm{relu}(W_1 z),
-\quad W_1 \in \mathbb{R}^{4d\times d},\; W_2 \in \mathbb{R}^{d\times 4d}.
-$$
-
-**Head.** Logits are produced by a final norm and linear map:
-
-$$\ell = \mathrm{LN}(h^{(L)})\,W_{\text{head}}, \qquad W_{\text{head}} \in \mathbb{R}^{d\times|\mathcal V|}.$$
+The architecture gap is largest exactly where capacity is scarce (d=16: MoE
++9 pts) and disappears once capacity exceeds what the task needs (d=128:
+90.0 vs 90.4). This is not evidence that MoE is a better learner; it is what
+you would expect from a model that carries more parameters (§6) being compared
+at equal `d_model`. When capacity is the bottleneck, more parameters win; past
+saturation, the architecture stops mattering.
 
 ---
 
-## 4. Mixture of Experts
+## 3. Effect of task diversity (n_ops)
 
-The MoE model is identical except the block's single $\mathrm{FFN}$ is replaced by a
-routed mixture of $E$ experts $\{\mathrm{FFN}_e\}_{e=1}^E$, each an independent MLP of
-the same shape, following the sparsely-gated MoE layer of Shazeer et al. [1].
+![Accuracy vs n_ops](figures/fig_nops.svg)
 
-**Router.** A linear layer produces per-token scores $s = h W_r \in \mathbb{R}^{E}$.
-I keep the top-$k$ experts and softmax over them:
+Marginal means at d=64:
 
-$$
-\pi_e =
-\frac{\exp(s_e)\,\mathbb{1}\!\left[e \in \mathrm{top}\text{-}k(s)\right]}
-     {\sum_{e' \in \mathrm{top}\text{-}k(s)} \exp(s_{e'})}.
-$$
+| n_ops | dense | moe4 | moe4-bal | moe3 |
+| ----: | ----: | ---: | -------: | ---: |
+|     4 |  94.6 | 95.1 |     97.5 | 97.2 |
+|     8 |  86.1 | 88.1 |     87.3 | 88.7 |
+|    16 |  86.9 | 88.4 |     88.5 | 88.0 |
 
-Thus $\pi \in \Delta^{E-1}$ with at most $k$ non-zero entries.
+More operations to learn in a fixed budget lowers accuracy, with the sharpest
+drop from 4→8 ops (−8 pts). The MoE edge is small (~+1.5 pts) and roughly
+constant across difficulty; adding experts did not make the harder,
+more-diverse settings disproportionately easier, which is the first hint that
+the experts are not carving the task up by operation (§7).
 
-**Layer output.** The MoE layer is the gated combination
+The two capacity/diversity factors together trace a surface. dense (blue) and
+moe4 (orange) sit almost flush across the whole grid: the orange sheet floats
+just above the blue one at the low-capacity edge and merges with it everywhere
+else, the same story as §2 in one picture:
 
-$$\mathrm{MoE}(h) = \sum_{e=1}^{E} \pi_e \, \mathrm{FFN}_e(h).$$
-
-In this work I use $E = 4$ experts and $k = 2$. **Deliberately, $E < |\mathcal O|$**:
-eight operations cannot map one-to-one onto four experts, forcing experts to be shared —
-which is what makes the routing analysis in §6 informative.
-
-> **Implementation note.** The current implementation is _naïve_: it evaluates **all**
-> $E$ experts and zeroes out the non-selected ones via $\pi$. This costs $E\times$ the
-> FFN FLOPs of the dense model rather than the $k\times$ that a sparse implementation
-> would achieve. Making the computation genuinely sparse (a fused grouped-matmul kernel)
-> is Phase C.
+![Accuracy surface](figures/fig_surface.svg)
 
 ---
 
-## 5. Training objective
+## 4. Effect of vocabulary (n_dig)
 
-I train with next-token prediction, masked to the answer region. For a model with
-parameters $\theta$,
+![Accuracy vs n_dig](figures/fig_ndig.svg)
 
-$$
-\mathcal{L}(\theta) =
--\frac{1}{|\mathcal A|} \sum_{i \in \mathcal A}
-\log p_\theta\!\left(x_{i+1} \mid x_{\le i}\right),
-$$
+Marginal means at d=64:
 
-i.e. standard cross-entropy applied only at answer positions (the prompt is given, not
-predicted). A useful sanity check: an untrained model assigns roughly uniform mass over
-$|\mathcal V|$ tokens, so $\mathcal L \approx \log |\mathcal V| = \log 22 \approx 3.09$,
-which I observe empirically. I optimize with AdamW (learning rate $10^{-3}$).
+| n_dig | dense | moe4 | moe4-bal | moe3 |
+| ----: | ----: | ---: | -------: | ---: |
+|    10 |  91.1 | 92.3 |     92.8 | 93.1 |
+|    20 |  87.9 | 89.3 |     90.6 | 90.7 |
 
----
-
-## 6. Metrics
-
-**Exact-match accuracy.** For operation $o$ with $N_o$ held-out examples, I generate
-the answer $\hat y$ autoregressively (greedy) and score exact string match against the
-reference $y = o(a)$:
-
-$$\mathrm{acc}_o = \frac{1}{N_o}\sum_{j=1}^{N_o} \mathbb{1}\!\left[\hat y^{(j)} = y^{(j)}\right].$$
-
-**Routing distribution.** For a trained MoE, let $p(e \mid o)$ be the fraction of
-answer-region tokens from op-$o$ examples whose top-1 expert is $e$. This yields an
-$|\mathcal O| \times E$ matrix (Figure 2).
-
-**Routing entropy.** The concentration of an operation's routing is
-
-$$H(o) = -\sum_{e=1}^{E} p(e \mid o)\,\log p(e \mid o).$$
-
-Low $H(o)$ means op $o$ is handled by few experts (sharp specialization).
-
-**Expert utilization.** The marginal load on expert $e$ is
-$U_e = \tfrac{1}{|\mathcal O|}\sum_o p(e\mid o)$. A _dead_ / collapsed expert satisfies
-$U_e \approx 0$; perfectly balanced routing would give $U_e = 1/E = 0.25$.
+Doubling the digit vocabulary costs ~3 pts across the board, more embeddings to
+learn and fewer training examples per token. The MoE variants degrade slightly
+less (dense −3.2 vs moe3 −2.4), but the difference is within the noise floor
+established next.
 
 ---
 
-## 7. Experimental setup
+## 5. Seed variance: the noise floor
 
-Both models use $d = 64$, $L = 2$ layers, single-head attention, $T = 20$. The MoE uses
-$E = 4$, $k = 2$. Each configuration is trained for **8,000 steps** at batch size 64,
-AdamW $10^{-3}$, across **5 seeds** $\{1,\dots,5\}$; for each seed the dense and MoE
-models share the seed (identical data stream and comparable initialization), so the only
-difference is architecture. Accuracy is measured on 500 held-out examples per model
-(fixed evaluation seed, disjoint from training). I report mean $\pm$ standard deviation
-over seeds.
+![Seed variance](figures/fig_seed.svg)
 
----
+The same configuration (d=64, n_ops=8, n_dig=10) across seeds:
 
-## 8. Results
+| arch     | mean |  std |
+| -------- | ---: | ---: |
+| dense    | 87.9 | 2.63 |
+| moe4     | 89.0 | 1.04 |
+| moe4-bal | 88.1 | 3.88 |
+| moe3     | 89.3 | 2.82 |
 
-### 8.1 Accuracy: dense ≈ MoE
-
-<!-- figures/accuracy.svg -->
-
-| Operation   | Dense (%)  | MoE (%)     |
-| ----------- | ---------- | ----------- |
-| SORT        | 91.3 ± 7.4 | 93.5 ± 5.3  |
-| RUNMAX      | 99.3 ± 0.8 | 97.4 ± 4.5  |
-| RUNMIN      | 99.4 ± 0.8 | 97.7 ± 3.0  |
-| DEDUP       | 91.9 ± 3.5 | 91.0 ± 3.4  |
-| UNION       | 99.2 ± 1.7 | 98.0 ± 1.4  |
-| ROTATE      | 97.0 ± 2.7 | 97.3 ± 2.3  |
-| REVERSE     | 93.4 ± 8.1 | 90.3 ± 12.6 |
-| PARITY      | 51.2 ± 3.1 | 53.2 ± 2.4  |
-| **Overall** | **~90.6**  | **~89.8**   |
-
-![Accuracy graph comparing dense and MoE models per Operation](figures/accuracy.svg)
-
-Per operation, dense and MoE are statistically indistinguishable (differences within one
-standard deviation). Two robust observations survive across seeds:
-
-- **Parity is unlearned.** Both models sit at ~53%, i.e. chance for a single-bit output.
-  Parity requires aggregating a global XOR over the sequence, which this architecture at
-  this scale does not acquire — and, unlike other ops, **more training does not help**.
-- **Variance differs by architecture.** Dense is very stable on the monotone ops
-  (RUNMAX/RUNMIN, ±0.8) but volatile on SORT (±7.4); the MoE is more volatile on REVERSE
-  (±12.6). The two architectures have different _failure modes_, not different means.
-
-> **A note on rigor.** An earlier single-seed run at fewer steps showed large per-op
-> swings (e.g. DEDUP 62.7 vs 41.8). Multi-seed evaluation revealed these were training
-> noise: at 8k steps over 5 seeds the gap closes to 91.9 vs 91.0. This is the value of
-> multi-seed evaluation, and a caution against reading single runs.
-
-### 8.2 Cost: the MoE is dominated
-
-| Model | Parameters | Training time (s) |
-| ----- | ---------- | ----------------- |
-| Dense | 104,214    | 60.5 ± 1.6        |
-| MoE   | 303,262    | 102.0 ± 3.0       |
-
-The naïve MoE uses **2.9× the parameters** and **1.7× the wall-clock training time** for
-**no accuracy benefit**. On this task, at this scale, it is a strictly worse choice.
-
-### 8.3 Routing: specialization vs. collapse
-
-<!-- figures/routing_avg.svg + figures/routing_seed*.svg -->
-
-Per-seed expert utilization $U_e$ (fraction of answer-region tokens per expert;
-balanced ideal = 0.25):
-
-| Seed | $U_0$ | $U_1$ | $U_2$ | $U_3$ | collapsed ($U_e < 0.02$) |
-| ---- | ----- | ----- | ----- | ----- | ------------------------ |
-| 1    | 0.10  | 0.035 | 0.44  | 0.42  | 0 (E1 near-dead)         |
-| 2    | 0.65  | 0.25  | 0.00  | 0.095 | 1                        |
-| 3    | 0.56  | 0.42  | 0.00  | 0.016 | 2                        |
-| 4    | 0.14  | 0.43  | 0.002 | 0.43  | 1                        |
-| 5    | 0.58  | 0.032 | 0.33  | 0.06  | 0 (E1 near-dead)         |
-
-**Heat map for MoE Seed0**
-
-![Routing heatmap for seed 0](figures/routing_seed0.svg)
-
-**Heat map for MoE Seed1**
-
-![Routing heatmap for seed 1](figures/routing_seed1.svg)
-
-**Heat map for MoE Seed2**
-
-![Routing heatmap for seed 2](figures/routing_seed2.svg)
-
-**Heat map for MoE Seed3**
-
-![Routing heatmap for seed 3](figures/routing_seed3.svg)
-
-**Heat map for MoE Seed4**
-
-![Routing heatmap for seed 4](figures/routing_seed4.svg)
-
-The routing is **never balanced**. Individual experts range from $0.00$ to $0.65$
-against the uniform ideal of $0.25$. In **3 of 5 seeds** at least one expert is fully
-collapsed; in the remaining two, one expert is near-dead ($U_e \approx 0.03$).
-**Which** expert collapses is seed-dependent (E2 in seeds 2–4; E1 near-dead in 1, 5).
-
-This is the mechanism behind §8.2: with one or two experts contributing nothing, the MoE
-operates with an effective capacity of roughly $\tfrac{2}{4}$–$\tfrac{3}{4}$ of its
-parameters, so its extra parameters do not translate into accuracy. The specialization
-the architecture was designed to exhibit is present in tendency (some experts clearly
-own more mass) but is overwhelmed by imbalance in the absence of any balancing pressure.
+**Run-to-run standard deviation is 1-4 points.** This is the single most
+important control in the study: any accuracy difference smaller than ~3 pts is
+indistinguishable from seed noise. Most of the MoE-over-dense gaps at d≥64 fall
+inside this band and should not be read as real. The one place the gap clearly
+exceeds noise is the capacity-starved regime (d=16, §2).
 
 ---
 
-## 9. Discussion
+## 6. Parameters vs. active parameters
 
-The headline is a _negative_ result stated precisely: **a naïve top-2 MoE does not earn
-its cost on this task.** This is not evidence against MoE in general; it isolates the two
-ingredients a fair MoE needs, both currently missing:
+![Accuracy vs total params](figures/fig_params.svg)
 
-1. **Sparse computation.** The naïve layer computes all $E$ experts. A correct sparse
-   MoE computes only $k$, making per-token FFN cost $k/E = 1/2$ of the naïve version and
-   comparable to dense. Realizing this requires a grouped/ragged matmul kernel.
-2. **Load balancing.** The stochastic collapse in §8.3 is the Ill-known failure mode of
-   unregularized routing. An auxiliary load-balancing loss encourages
-   $U_e \to 1/E$, recovering the wasted capacity.
+Parameter budgets at d=64:
 
-The clean experiment is therefore: add both, and re-measure whether the **optimized** MoE
-closes the accuracy gap _and_ undercuts the dense model's cost.
+| arch     | total params | active params |
+| -------- | -----------: | ------------: |
+| dense    |      104,926 |       104,926 |
+| moe4     |      303,974 |       171,622 |
+| moe4-bal |      304,010 |       171,658 |
+| moe3     |      237,704 |       171,528 |
 
----
-
-## 10. Limitations
-
-- **Scale.** One task family, $d=64$, $L=2$, single head, 5 seeds. Conclusions are about
-  this regime, not MoE at scale.
-- **Naïve MoE.** Cost numbers reflect the dense-compute implementation; a sparse kernel
-  changes the compute story (§9).
-- **Out-of-distribution.** Inputs are length 3–8 by construction; the model fails on
-  lengths 1–2 it never saw — it learns the training distribution, not the abstract
-  algorithm.
-- **Single-layer routing analysis.** Routing statistics are collected at the first block
-  only.
+An MoE layer holds ~3× the parameters of the dense layer but only activates
+~1.6× of them per token (top_k=2 of 4 experts). Plotting accuracy against
+**total** parameters, the four architectures fall on essentially **one shared
+curve**; the MoE points do not sit above the dense trend. In other words, at
+this scale MoE buys no accuracy per parameter that the parameter count alone
+does not already explain; its distinguishing structural property is simply that
+most of its parameters are dormant on any given token. That dormancy is the
+premise for the compute results in §8. This matches the original motivation for
+sparse MoE: decoupling parameter count from per-token compute [1, 2].
 
 ---
 
-## 11. Future work (Phase C)
+## 7. Routing behavior: no operation-level specialization
 
-- Add an auxiliary load-balancing loss; re-measure utilization $U_e$ and per-op accuracy.
-- Implement a fused grouped-matmul (`ragged_dot`) kernel so the top-2 MoE is genuinely
-  sparse; benchmark tokens/sec vs. the naïve layer and vs. dense.
-- Report the dense vs. naïve-MoE vs. optimized-MoE comparison on the same axes
-  (accuracy, parameters, training and inference cost).
+![Routing heatmaps](figures/fig_routing.svg)
+
+Averaged routing health across all runs with routing recorded:
+
+| arch     | dead experts | routing entropy | uniform ceiling |
+| -------- | -----------: | --------------: | --------------: |
+| moe4     |         0.79 |           0.893 |           1.386 |
+| moe4-bal |         0.26 |           1.074 |           1.386 |
+| moe3     |         0.28 |           0.736 |           1.099 |
+
+The natural hope is that experts specialize: that one expert learns "sorting"
+and another learns "filtering." **They do not.** Two regimes appear, neither of
+them specialization:
+
+- **Unbalanced → collapse.** Left alone, routing entropy sits well below the
+  uniform ceiling. In the hardest runs (d=128, n_ops=16) all sixteen
+  operations route to a single expert; one expert does the work and the others
+  atrophy (mean 0.79 dead experts). That is degeneration, not division of labor.
+- **Balanced → uniform.** The load-balancing loss lifts entropy to ~1.07, near
+  the uniform ceiling of 1.386: every operation now sprays roughly evenly across
+  all four experts (heatmap right). Utilization is healthy (dead experts drop to
+  0.26) but any structure is gone by construction; the loss explicitly
+  rewards uniformity.
+
+Crucially, balancing improves utilization but **not accuracy** (§2: moe4 vs
+moe4-bal are within noise). The auxiliary loss is doing exactly its job [2] and
+nothing more. The honest reading: interpretable, operation-level specialization
+did not emerge at this scale and diversity, consistent with reports that expert
+routing in trained MoEs is largely non-semantic and not cleanly interpretable
+[2, 3].
 
 ---
 
-## Reproduction
+## 8. Compute cost and the sparse kernel
 
-```bash
-uv run pytest 02_moe_instruction_follower          # 72 tests
-uv run python 02_moe_instruction_follower/results.py   # tables + figures
-```
+**The naive cost.** At d=64 the MoE is ~1.6× more expensive than dense (train
+131 s vs 80 s, inference 85 vs 135 tok/s), because the naive forward runs
+every expert on every token and discards the unused outputs. Held-out loss
+is marginally lower for MoE (0.044 vs 0.054), but not enough to justify the cost
+at this size.
 
-Figures are written to `figures/` (`accuracy.svg`, `routing_avg.svg`,
-`routing_seed{0..4}.svg`).
+**Recovering the sparsity.** `sparse.py` implements the forward the routing
+actually implies: gather only the selected (token, expert) pairs, sort by
+expert, run one grouped matmul (`jax.lax.ragged_dot`) so each expert sees only
+its tokens, then scatter the results back. It is verified equal to the naive
+path to `6.6e-7`.
+
+![Sparse crossover](figures/fig_crossover.svg)
+
+Wall-clock speedup of sparse over naive (`app.py bench`, dev GPU):
+
+| d_model |    64 |   128 |   256 |   512 |  1024 |
+| ------: | ----: | ----: | ----: | ----: | ----: |
+| speedup | 0.65× | 1.95× | 2.33× | 9.76× | 5.72× |
+
+At small width the gather/sort/scatter overhead costs more than the sparsity
+saves, so sparse is _slower_. The break-even is around
+d=128, and by d=512 sparse is ~10× faster, because the naive path's "run every
+expert" cost (and the memory to materialize every expert's activations) grows
+with width while the sparse path stays proportional to the tokens actually
+routed. The regime where the routing overhead is fully dwarfed by the compute
+saved lies beyond single-GPU reach here; the measured trend points that way, but
+the asymptote is an extrapolation, not a measurement. This is the same
+observation that motivates expert-parallel sharding at large scale [1, 4].
+
+---
+
+## 9. Summary of variable effects
+
+| Variable       | Direction on accuracy    | Magnitude                 | Note                              |
+| -------------- | ------------------------ | ------------------------- | --------------------------------- |
+| d_model ↑      | rises, then plateaus ~64 | +21 pts (16→64), ~0 after | task saturates                    |
+| n_ops ↑        | falls                    | −8 pts (4→16)             | harder                            |
+| n_dig ↑        | falls                    | −3 pts (10→20)            | more embeddings                   |
+| dense → MoE    | rises                    | +1-2 pts, +9 only at d=16 | mostly within noise               |
+| balance loss   | flat                     | ~0                        | fixes _utilization_, not accuracy |
+| seed           | n/a                      | ±1-4 pts                  | the noise floor                   |
+| naive → sparse | (compute)                | 0.65× → 9.76×             | liability small, win at scale     |
+
+**What the data supports, stated plainly.** On this task, at this scale, MoE is
+not a better model than the dense baseline; matched by total parameters it
+sits on the same accuracy curve, its apparent wins are mostly within seed noise,
+and its experts do not specialize. What it is, is a different compute
+structure: most of its parameters are inactive per token, and the sparse kernel
+turns that dormancy into a real wall-clock win, but only once the model is wide
+enough for the saved compute to outweigh the routing overhead. Everything here
+is a small-scale measurement; the interesting behavior is what it implies as the
+scale grows past what a single GPU can show.
 
 ---
 
 ## References
 
-[1] N. Shazeer, A. Mirhoseini, K. Maziarz, A. Davis, Q. Le, G. Hinton, J. Dean.
-_Outrageously Large Neural Networks: The Sparsely-Gated Mixture-of-Experts Layer._
-ICLR 2017. arXiv:1701.06538. — the top-$k$ gated MoE layer used here.
-
-[2] W. Fedus, B. Zoph, N. Shazeer. _Switch Transformers: Scaling to Trillion Parameter
-Models with Simple and Efficient Sparsity._ JMLR 2022. arXiv:2101.03961. — dense vs.
-sparse-MoE comparison and load balancing at scale.
-
-<!-- Verify arXiv IDs against arxiv.org before publishing. -->
+1. Shazeer et al., "Outrageously Large Neural Networks: The Sparsely-Gated
+   Mixture-of-Experts Layer," 2017.
+2. Fedus, Zoph, Shazeer, "Switch Transformers: Scaling to Trillion Parameter
+   Models with Simple and Efficient Sparsity," 2021.
+3. Jiang et al., "Mixtral of Experts," 2024 (routing analysis: expert
+   assignment shows little semantic/domain specialization).
+4. Lepikhin et al., "GShard: Scaling Giant Models with Conditional Computation
+   and Automatic Sharding," 2020.

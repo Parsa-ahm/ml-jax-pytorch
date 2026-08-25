@@ -1,81 +1,74 @@
-# 02 — Algorithmic Instruction-Follower (MoE)
+# 02 - Algorithmic Instruction-Follower (MoE)
 
-One tiny decoder transformer learns **eight** short list operations at once, picked
-by a prefix token:
+A Mixture of Experts model built by JAX/FLAX (nnx), trained on a list of Operations that are deterministic, allowing for full synthetic training and testing sets.
 
-```
-SORT    4 1 3      = 1 3 4
-DEDUP   4 0 0 1 0  = 4 0 1
-RUNMAX  6 9 5 6    = 6 9 9 9
-PARITY  9 3 6 9    = 1
-```
+This project was made to explore the characteristics of MoE models, and for reference I also have a dense GPT that has been trained on the exact same data for comparison.
+For the results see [WRITEUP.md](./WRITEUP.md).
 
-Data is generated on the fly (infinite, free) and **every answer is checked by real
-code**, so accuracy is exact — per operation, no labels, no test set to curate.
+## Task
 
-## Why this task
+Given an operation token and a short list of digits emit the results:
+"SORT 4 5 2 1 = 1 2 4 5".
+Given the exploratory nature of this experiment I decided to maintain variables and avoid hard coding variables. This was done in a Config class inside core.py.
+This allowed for a training run of a variety of models with different attributes within the same regime, for comparison.
 
-This is the open-ended rung. Instead of one optimization, it tells three connected
-stories at once, because the task was chosen to make them line up:
+## Model Attributes:
 
-1. **Dense vs Mixture-of-Experts.** Each op is a natural "mode." A dense model crams
-   all eight into one FFN; an MoE can route different ops to different experts. So the
-   dense-vs-MoE comparison is the point, not a formality.
-2. **Scaling curves.** Train several sizes, plot accuracy vs compute, dense vs MoE.
-3. **A custom kernel.** The MoE experts reduce to a `ragged_dot` (grouped matmul); we
-   write a fused Pallas/Triton kernel for it and benchmark it against the naive version.
-
-The standout result: **8 ops but only 4 experts**, so experts must *share*. We measure
-how the four experts partition the eight ops, whether that partition respects operation
-*families* (compare / set / move / reduce), and how routing sharpens as the model scales.
-
-## The eight ops
-
-| Op | Family | Meaning |
-|------|---------|---------|
-| SORT | compare | ascending sort |
-| RUNMAX | compare | running maximum |
-| RUNMIN | compare | running minimum |
-| DEDUP | set | drop duplicates, keep first-seen order |
-| UNION | set | sorted unique values |
-| ROTATE | move | rotate right by one |
-| REVERSE | move | reverse the list |
-| PARITY | reduce | parity (0/1) of the count of odd values |
-
-Values are single digits 0–9; input length 3–8; sequence length 20. Vocab = 22 tokens.
-
-## Stack (differs from rungs 1 & 3)
-
-**JAX + Flax nnx + Pallas.** This is the JAX/kernel rung; rungs 1 and 3 stay PyTorch.
+| Attributes    | GPT | MoE | Description                                                                        |
+| ------------- | --- | --- | ---------------------------------------------------------------------------------- |
+| n_ops         | ✓   | ✓   | Number of operations that the model have to learn out of the 21 pre made functions |
+| n_dig         | ✓   | ✓   | Number of digits that are in the vocabulary                                        |
+| min_input_len | ✓   | ✓   | Min length of list operated on                                                     |
+| max_input_len | ✓   | ✓   | Max length of list operated on                                                     |
+| d_model       | ✓   | ✓   | The size of the hidden layers of the models                                        |
+| n_layers      | ✓   | ✓   | Number of the layers in the hidden layers                                          |
+| n_head        | ✓   | ✓   | Number of attention heads per layer                                                |
+| n_experts     | x   | ✓   | Number of experts that the MoE should have                                         |
+| top_k         | x   | ✓   | How many of the experts should be active per run                                   |
+| balance_coef  | x   | ✓   | The coefficient used to ballance the load between experts to avoid dead experts    |
+| steps         | ✓   | ✓   | Number of steps used to train the models                                           |
+| batch_size    | ✓   | ✓   | How many instances in each batch for each step during training                     |
+| lr            | ✓   | ✓   | The adam learning rate                                                             |
+| seed          | ✓   | ✓   | The seed used when randomizing for each batch                                      |
 
 ## Files
 
-```
-ops.py        the 8 operations as pure functions (the source of truth)   [done]
-data.py       tokenizer, on-the-fly batch generator, answer grader        [done]
-baseline.py   dense decoder transformer (~10M)                            [todo]
-moe.py        same model, FFN swapped for top-2 router + 4 experts        [todo]
-kernel.py     fused ragged_dot Pallas/Triton kernel for the experts       [todo]
-scaling.py    train several sizes, dense vs MoE, save the curve           [todo]
-analysis.py   router assignments vs op, family alignment, entropy vs scale [todo]
-test_*.py     correctness first — a claim with no passing test is not a claim
-```
+| File             | What it holds                                                              |
+| ---------------- | -------------------------------------------------------------------------- |
+| `ops.py`         | The 21 list operations and the `Op` registry (name, family, solve).        |
+| `core.py`        | `Config`, `Tokenizer`, and data generation/grading.                        |
+| `dense.py`       | The dense transformer: embeddings, causal attention, block, GPT.           |
+| `moe.py`         | MoE model: router, experts, MoE block/GPT, load-balance loss.              |
+| `train.py`       | `build_model`, the training loop, generation, checkpointing.               |
+| `analysis.py`    | Per-model measurement: accuracy, routing, cost, records, plots.            |
+| `sparse.py`      | Sparse top-k routing via `jax.lax.ragged_dot` - only selected experts run. |
+| `experiments.py` | The study: config sweep, sparse-vs-naive benchmark, surfaces, demo.        |
+| `app.py`         | Single CLI entry point (all commands below).                               |
+| `test_*.py`      | 103 tests across ops, core, dense, moe, sparse, and the full pipeline.     |
 
-## Results (filled in at the end)
-
-| Model | Params | Overall acc | Weakest op | Notes |
-|-------|--------|-------------|------------|-------|
-| dense | — | — | — | — |
-| MoE (4 experts) | — | — | — | — |
-
-| Kernel | tokens/sec | vs naive | Notes |
-|--------|-----------|----------|-------|
-| naive grouped matmul | — | 1.0× | — |
-| fused ragged_dot | — | — | — |
-
-## Run
+## Usage
 
 ```bash
-uv run python 02_moe_instruction_follower/data.py    # eyeball sample examples
-uv run pytest 02_moe_instruction_follower            # tests
+# train one config (dense if --experts omitted)
+uv run python app.py train --d-model 64 --experts 4 --top-k 2 --steps 8000
+
+# run the accuracy grid -> datasheet.jsonl
+uv run python app.py sweep --seeds 1 2 3 --d-models 16 32 64 128 \
+    --n-ops 4 8 16 --n-dig 10 20
+
+# sparse vs naive MoE compute crossover
+uv run python app.py bench --d-models 64 128 256 512 1024
+
+# render accuracy surfaces from datasheet.jsonl -> figures/
+uv run python app.py plot
+
+# interactive: prompt models, compare outputs
+uv run python app.py demo
+
+# tests
+uv run pytest
+
 ```
+
+Notes:
+Sweep appends to `datasheet.jsonl` (gitignored) and skips configs already recorded, so it's resumable. Plot and demo read what sweep and train produced.
