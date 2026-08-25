@@ -1,45 +1,66 @@
 # whittle
 
-Take a canonical model. Build the textbook version. Then whittle it down — smaller, faster, cheaper — and **prove the tradeoff with numbers**.
+Take a canonical model, build the textbook version, then whittle it down (smaller,
+faster, cheaper) and prove the tradeoff with numbers. The point isn't training a
+model; it's measuring it, making it leaner, and showing the before/after table.
+That's systems ML.
 
-Three rungs, one per major model family. Each follows the same spine:
+Two projects so far, each self-contained in its own folder with its own README.
 
+## Projects
+
+### 01 - MNIST classifier (PyTorch)
+
+A textbook fp32 CNN quantized to int8, with an honest look at when quantization
+actually helps.
+
+- **What it shows:** int8 gives a reliable 3.5x size cut with ~0 accuracy drop, but
+  the latency win is conditional. A batch-size sweep pins down where int8 overtakes
+  fp32 (batch >= 4) and where it stops mattering (convs dominate at large batch).
+- **Stack:** PyTorch, dynamic int8 quantization.
+- **Details:** [`01_mnist_classifier/README.md`](01_mnist_classifier/README.md)
+
+### 02 - MoE instruction-follower (JAX / Flax)
+
+A from-scratch Mixture-of-Experts transformer against a dense baseline on a
+synthetic list-operation task, plus a sparse routing kernel.
+
+- **What it shows:** a controlled 346-run study across capacity, task diversity,
+  vocabulary, and seeds. Matched by parameters, MoE is not a better model than
+  dense and its experts do not specialize; its edge is a compute one, and a sparse
+  `ragged_dot` kernel turns that into a real speedup only at scale (0.65x to 9.76x).
+- **Stack:** JAX, Flax (nnx), a single-command CLI.
+- **Details:** [`02_moe_instruction_follower/README.md`](02_moe_instruction_follower/README.md)
+  and [`02_moe_instruction_follower/WRITEUP.md`](02_moe_instruction_follower/WRITEUP.md)
+
+## Access
+
+One install covers both projects:
+
+```bash
+uv sync
 ```
-baseline  ->  optimized  ->  benchmark
+
+Then run each project from the repo root:
+
+```bash
+# 01 - MNIST classifier
+uv run python 01_mnist_classifier/baseline.py     # train + save fp32
+uv run python 01_mnist_classifier/optimized.py    # quantize + save int8
+uv run python 01_mnist_classifier/benchmark.py    # compare + chart
+
+# 02 - MoE instruction-follower (run from inside the folder)
+cd 02_moe_instruction_follower
+uv run python app.py train      # train one config
+uv run python app.py sweep      # the accuracy grid
+uv run python app.py bench      # sparse vs naive compute
+uv run python app.py plot       # render figures
+
+# tests, either project
+uv run pytest 01_mnist_classifier
+uv run pytest 02_moe_instruction_follower
 ```
-
-The point isn't training a model. Anyone can call `.fit()`. The point is: measure it, make it leaner, and show the before/after table. That's systems ML.
-
-## The ladder
-
-| # | Model | Family | Optimization axis | Deliverable |
-|---|-------|--------|-------------------|-------------|
-| 01 | MNIST classifier | Discriminative (CNN) | int8 quantization + portable inference | size ↓, latency ↓, accuracy ~flat |
-| 02 | Tiny LLM (speaks Python) | Autoregressive (Transformer) | KV-cache + quantization | tokens/sec ↑ |
-| 03 | Diffusion model | Generative | fewer sampling steps (DDIM / distillation) | steps ↓, quality held |
-
-Rung 04 is intentionally unplanned — a paper reproduction on alternate hardware (TPU/JAX) or a custom GPU kernel. Picked later, once the first three are done.
-
-## Method — every rung, no exceptions
-
-```
-README.md      the spec + the results table (filled in at the end)
-baseline.py    the standard PyTorch implementation
-optimized.py   ONE efficiency technique, pushed hard
-benchmark.py   runs both, measures size / latency / accuracy, prints the table
-test_*.py      correctness first — a claim with no passing test is not a claim
-```
-
-Rule: **one optimization axis per rung.** Stack too many and you learn none.
 
 ## Stack
 
-PyTorch · uv · pytest · ruff. Runs on a single GPU or plain CPU. No cloud bill.
-
-## Run
-
-```bash
-uv sync                              # one-time: install torch etc.
-uv run pytest 01_mnist_classifier    # tests for one rung
-uv run python 01_mnist_classifier/benchmark.py
-```
+uv, pytest, ruff. PyTorch for 01, JAX/Flax for 02. Runs on a single GPU or plain CPU.
