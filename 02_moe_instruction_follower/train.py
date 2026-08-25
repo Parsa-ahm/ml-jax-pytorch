@@ -1,3 +1,5 @@
+"""build_model, the training loop, generation, and checkpointing."""
+
 import pickle
 
 import jax

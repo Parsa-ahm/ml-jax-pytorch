@@ -1,7 +1,10 @@
+"""Per-model measurement: accuracy, routing, cost metrics, data-sheet records, plots."""
+
 import json
 import os
 import time
 from dataclasses import asdict
+from datetime import datetime
 
 import jax
 import jax.numpy as jnp
@@ -11,14 +14,13 @@ from core import Config, Tokenizer, decode_answer, make_batch
 from flax import nnx
 from moe import MoEGPT
 from ops import OP_NAMES
-from train import build_prompt, generate
+from train import build_prompt, compute_loss, generate
 
 
-# --- accuracy -------------------------------------------------------------
 def evaluate(
     model: nnx.Module, tok: Tokenizer, n_examples: int = 500
 ) -> dict[str, float]:
-    active = OP_NAMES[: tok.config.n_ops]  # only the ops this task actually uses
+    active = OP_NAMES[: tok.config.n_ops]
     rng = np.random.default_rng(8)
     batch = make_batch(rng, tok, n_examples)
 
@@ -37,7 +39,6 @@ def evaluate(
     return {name: correct[name] / total[name] for name in active}
 
 
-# --- routing analysis -----------------------------------------------------
 def get_routing(model: MoEGPT, ids: jax.Array) -> jax.Array:
     x = model.emb(ids)
     block = model.blocks[0]
@@ -70,9 +71,29 @@ def route_counts(
     return counts
 
 
-# --- cost / routing metrics ----------------------------------------------
 def param_count(model: nnx.Module) -> int:
     return sum(x.size for x in jax.tree.leaves(nnx.state(model, nnx.Param)))
+
+
+def active_params(model: nnx.Module, config: Config) -> int:
+
+    total = param_count(model)
+    if config.n_experts is None:
+        return total
+    expert_params = 0
+    for block in model.blocks:
+        for e in block.moe.experts:
+            expert_params += param_count(e)
+    unused = expert_params * (config.n_experts - config.top_k) // config.n_experts
+    return total - unused
+
+
+def held_out_loss(model: nnx.Module, tok: Tokenizer, n: int = 256) -> float:
+    rng = np.random.default_rng(999)
+    batch = make_batch(rng, tok, n)
+    ids = jnp.array(batch["tokens"])
+    mask = jnp.array(batch["answer_mask"])
+    return float(compute_loss(model(ids), ids, mask))
 
 
 def inference_speed(model: nnx.Module, tok: Tokenizer, n: int = 100) -> float:
@@ -88,31 +109,35 @@ def inference_speed(model: nnx.Module, tok: Tokenizer, n: int = 100) -> float:
 
 
 def routing_metrics(model: nnx.Module, tok: Tokenizer) -> dict:
-    counts = route_counts(model, tok)
+    n_experts = len(model.blocks[0].moe.experts)  # match the model, not the default 4
+    counts = route_counts(model, tok, n_experts=n_experts)
     util = counts.sum(axis=0) / counts.sum()
-    p = util[util > 0]  # drop zeros before log
+    p = util[util > 0]
     entropy = float(-(p * np.log(p)).sum())
     return {
         "utilization": util.tolist(),
         "routing_entropy": entropy,
         "dead_experts": int((util < 0.02).sum()),
+        "routing_grid": counts.tolist(),
     }
 
 
-# --- data-sheet record ----------------------------------------------------
 def measure(
     config: Config, model: nnx.Module, tok: Tokenizer, train_time_s: float
 ) -> dict:
     acc = evaluate(model, tok)
     rec = {
-        **asdict(config),  # every config knob, logged automatically
+        **asdict(config),
         "seq_len": tok.seq_len,
         "vocab_size": tok.vocab_size,
         "params": param_count(model),
+        "active_params": active_params(model, config),
         "train_time_s": round(train_time_s, 2),
         "tokens_per_sec": round(inference_speed(model, tok), 1),
         "overall_acc": float(np.mean(list(acc.values()))),
+        "held_out_loss": held_out_loss(model, tok),
         "per_op_acc": acc,
+        "timestamp": datetime.now().isoformat(timespec="seconds"),
     }
     if config.n_experts is not None:
         rec.update(routing_metrics(model, tok))
@@ -124,7 +149,6 @@ def append_record(rec: dict, path: str = "datasheet.jsonl") -> None:
         f.write(json.dumps(rec) + "\n")
 
 
-# --- plots ----------------------------------------------------------------
 def plot_accuracy(
     dense: dict[str, float], moe: dict[str, float], path: str = "figures/accuracy.svg"
 ) -> None:

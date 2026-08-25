@@ -1,3 +1,5 @@
+"""Mixture-of-Experts model: router, experts, MoE block/GPT, and load-balance loss."""
+
 import jax
 import jax.numpy as jnp
 from dense import CausalSelfAttention, Embeddings

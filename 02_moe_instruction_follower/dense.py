@@ -1,3 +1,5 @@
+"""The dense transformer: embeddings, multi-head causal attention, block, GPT."""
+
 import jax
 import jax.numpy as jnp
 from flax import nnx

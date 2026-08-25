@@ -1,3 +1,5 @@
+"""Config, Tokenizer and data generation/grading."""
+
 from dataclasses import dataclass
 
 import numpy as np
