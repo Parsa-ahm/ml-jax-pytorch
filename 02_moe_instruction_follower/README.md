@@ -72,3 +72,87 @@ uv run pytest
 
 Notes:
 Sweep appends to `datasheet.jsonl` (gitignored) and skips configs already recorded, so it's resumable. Plot and demo read what sweep and train produced.
+
+## Next Steps: Generalization
+
+Everything measured so far is in-distribution. `make_batch` draws fresh examples
+from an infinite generator every step, so there is no fixed training set and no
+train/test gap: held-out loss tracks training loss by construction. The ~90%
+ceiling in [WRITEUP.md](./WRITEUP.md) is therefore not overfitting, it is a
+failure to learn the underlying algorithm. Regularization and "more data" cannot
+move it.
+
+The open question is out-of-distribution generalization. Three axes, none
+currently tested, each with a structural blocker in the code.
+
+### 1. Length
+
+Train on `min_input_len=3, max_input_len=8`, test on 9-16.
+
+Blockers:
+
+- `dense.py` `Embeddings` uses learned absolute positions,
+  `nnx.Embed(seq_len, d_model)`, and `Config.seq_len = 2 * max_input_len + 4`.
+  Positions past the trained range do not exist, and positions seen rarely are
+  undertrained. Length extrapolation is structurally impossible as written.
+- `generate(..., max_new=9)` in `train.py` caps output length independently.
+- `n_layers=2` is fixed depth. SORT, MODE and DEDUP on a length-16 list need
+  more sequential steps than on a length-4 list; constant depth cannot supply
+  them.
+
+Planned work:
+
+1. Make `seq_len` an independent `Config` field and derive `max_new` from it, so
+   the model can be trained at length 8 but allocated for 16.
+2. Ablate the positional scheme: learned-absolute (current) vs RoPE vs NoPE (no
+   positional embedding, causal mask only). Single-variable change, fits the
+   existing sweep harness.
+3. Scratchpad targets: emit intermediate states rather than only the final
+   answer, e.g. `SORT 4 5 2 1 = [4] [4 5] [2 4 5] [1 2 4 5] <eos>`. This turns a
+   superlinear-depth problem into a constant-depth per-step one. The imperative
+   loops in `ops.py` (`runmax`, `runmin`, `dedup`, insertion-form `sort`) make
+   trace emission straightforward.
+4. Hold out an interior length (train 3, 4, 6, 7, 8; test 5) to separate
+   interpolation from extrapolation.
+
+### 2. Vocabulary
+
+Train on digits 0-9, test on 10-19.
+
+Blocker: digits are atomic tokens with independent embeddings. Nothing encodes
+that `7 < 8`; the ordering relation is learned only from comparison examples, so
+an unseen digit carries a random embedding and every compare or sort op fails
+outright. This is the likely mechanism behind the ~3 pt cost of `n_dig=20` in
+WRITEUP section 4: more of the order relation to relearn from fewer examples per
+token, not a harder task.
+
+Planned work: structured number representation, either tying the embedding to a
+scalar magnitude feature or tokenizing numbers positionally so ordering becomes
+compositional. Held-out digits then become a meaningful test.
+
+### 3. Instruction compositionality
+
+The operation is a single atomic token (`Tokenizer` in `core.py`), so an unseen
+op token has an untrained embedding and scores zero by construction. "Instruction
+following" currently means 21-way classification into memorized behaviors.
+
+Planned work: multi-token compositional instructions (`SORT DESC`,
+`FILTER EVEN`, `REVERSE` after `SORT`), trained on a subset of the cross product
+with combinations held out. This is also the setting where expert specialization
+has a reason to emerge: `Op.family` (compare / set / move / reduce / filter)
+already exists, and WRITEUP section 7 found no specialization, plausibly because
+atomic op tokens give the experts no shared substructure to carve along.
+
+### Order of work
+
+1. OOD evaluation suite in `analysis.py`: accuracy broken out by input length, by
+   held-out digit set, and by held-out operation. Baseline the existing
+   checkpoints first. Near-zero scores on all three are the expected result and
+   are worth reporting on their own.
+2. `seq_len` / `max_new` decoupling.
+3. Positional-scheme ablation on length extrapolation.
+4. Scratchpad targets for the traceable ops.
+5. Compositional instructions, which reopens the expert-specialization question.
+
+Steps 1-3 are the small ones and they change what the study answers: from "MoE
+vs dense at matched budget" to "does either actually learn the algorithm."
