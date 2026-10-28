@@ -1,5 +1,5 @@
 """
-Baseline MNIST classifier — the standard PyTorch CNN.
+Baseline MNIST classifier: the standard PyTorch CNN.
 """
 import torch
 import torch.nn as nn
@@ -63,7 +63,7 @@ def main():
             loss.backward()
             optimizer.step()
 
-            # live stats — running train accuracy + average loss, updated in place
+            # live stats: running train accuracy + average loss, updated in place
             running_loss += loss.item() * labels.size(0)
             correct += (outputs.argmax(dim=1) == labels).sum().item()
             total += labels.size(0)

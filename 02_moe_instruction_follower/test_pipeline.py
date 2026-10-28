@@ -26,7 +26,7 @@ def ids(tok):
 
 # --- build_prompt ---------------------------------------------------------
 def test_build_prompt_layout(tok):
-    # prompt is [<bos>, OP, digits..., =]  — no answer, no <eos>
+    # prompt is [<bos>, OP, digits..., =], no answer, no <eos>
     p = build_prompt(tok, "SORT", [4, 1, 3])
     assert p[0] == tok.bos_id
     assert p[1] == tok.stoi["SORT"]

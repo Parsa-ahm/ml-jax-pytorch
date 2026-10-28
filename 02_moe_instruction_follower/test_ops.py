@@ -1,7 +1,7 @@
 import pytest
 from ops import OP_BY_NAME, OP_NAMES, OPS
 
-# (op_name, input, expected) — correctness cases for every op, plus edge cases.
+# (op_name, input, expected): correctness cases for every op, plus edge cases.
 CASES = [
     ("SORT", [4, 1, 3], [1, 3, 4]),
     ("SORT", [5], [5]),

@@ -21,7 +21,7 @@ dev = [
 ]
 
 [tool.uv]
-package = false      # not a package — a folder of projects we run and benchmark
+package = false      # a folder of projects, not a package
 
 [tool.ruff]
 line-length = 88

@@ -6,7 +6,7 @@ __pycache__/
 .ruff_cache/
 
 # uv
-# (uv.lock IS committed — reproducible envs)
+# uv.lock is committed for reproducible envs
 
 # Data + model artifacts (machine-local, regenerable)
 01_mnist_classifier/data/

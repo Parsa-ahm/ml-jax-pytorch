@@ -1,5 +1,5 @@
 """
-Optimized MNIST classifier — the baseline, whittled with int8 quantization.
+Optimized MNIST classifier: the baseline, whittled with int8 quantization.
 """
 
 import torch.quantization

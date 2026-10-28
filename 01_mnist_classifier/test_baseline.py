@@ -1,4 +1,4 @@
-"""Tests for the fp32 baseline. Correctness first — a benchmark on a broken
+"""Tests for the fp32 baseline. Correctness first: a benchmark on a broken
 model is a lie."""
 
 import os

@@ -1,9 +1,8 @@
-# whittle
+# ml-jax-pytorch
 
 Take a canonical model, build the textbook version, then whittle it down (smaller,
 faster, cheaper) and prove the tradeoff with numbers. The point isn't training a
 model; it's measuring it, making it leaner, and showing the before/after table.
-That's systems ML.
 
 Two projects so far, each self-contained in its own folder with its own README.
 
@@ -33,7 +32,7 @@ synthetic list-operation task, plus a sparse routing kernel.
 - **Details:** [`02_moe_instruction_follower/README.md`](02_moe_instruction_follower/README.md)
   and [`02_moe_instruction_follower/WRITEUP.md`](02_moe_instruction_follower/WRITEUP.md)
 
-## Access
+## Run
 
 One install covers both projects:
 

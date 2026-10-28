@@ -1,5 +1,5 @@
 """
-Benchmark — baseline fp32 vs int8 quantized. The proof.
+Benchmark: baseline fp32 vs int8 quantized.
 """
 
 import os
@@ -46,7 +46,7 @@ def measure_latency_ms(model, sample, n_warmup=50, n_iter=500):
     don't poison the timed run."""
     model.eval()
     with torch.no_grad():
-        for _ in range(n_warmup):          # untimed — burn off the slow first passes
+        for _ in range(n_warmup):          # untimed, burns off the slow first passes
             model(sample)
         start = time.perf_counter()
         for _ in range(n_iter):
@@ -60,7 +60,7 @@ def latency_sweep(models, batch, batch_sizes, n_warmup=10, n_iter=50):
 
     Batch-1 is int8's worst case (all quant/dequant overhead, no amortization).
     Bigger batches amortize that overhead over more matmul work, so this sweep
-    shows *where* — if anywhere — int8 overtakes fp32."""
+    shows *where*, if anywhere, int8 overtakes fp32."""
     sweep = {name: [] for name in models}
     for b in batch_sizes:
         x = batch[:b]
@@ -114,7 +114,7 @@ def plot(results):
         ax.set_title(title, fontweight="bold")
         ax.bar_label(bars, fmt="%.3f", padding=3)
         ax.margins(y=0.15)
-    fig.suptitle("MNIST — fp32 baseline vs int8 quantized", fontsize=14, fontweight="bold")
+    fig.suptitle("MNIST: fp32 baseline vs int8 quantized", fontsize=14, fontweight="bold")
     fig.tight_layout()
     fig.savefig("benchmark.png", dpi=150)
     print("saved chart -> benchmark.png")
